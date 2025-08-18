@@ -15,6 +15,8 @@ For example you with this proxy you can configure badges on group level in Gitla
 | `listen_endpoint` | Path under which proxy response to SonarQube      | `string` | `/proxy/bages/measure` |
 | `insecure`        | Allow insecure requests                           | `bool`   | `false`                |
 | `proxy_token`     | Check authorization by proxy_token param in query | `string` | ``                     |
+| `cacheExpire`     | Time to expire cached token, seconds              | `int64`  | `3600`                 |
+| `cacheSize`       | Number of cached tokens                           | `int`    | `1000`                 |
 | `debug`           | Enable debug logging                              | `bool`   | `false `               |
 
 ## How to use
