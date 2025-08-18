@@ -9,7 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"time"
-	"io/ioutil"
+	"io"
 	"github.com/bluele/gcache"
 	"flag"
 )
@@ -22,6 +22,8 @@ var (
 	sonarUrl         = flag.String("sonar_url", "http://127.0.0.1:9000", "SonarQube url.")
 	insecure         = flag.Bool("insecure", false, "Allow insecure requests.")
 	proxyToken       = flag.String("proxy_token", "", "Proxy authrization token.")
+	cacheExpire      = flag.Int64("cache_expire", 3600, "Time to store tokens in cache, seconds.")
+	cacheSize        = flag.Int("cache_size", 1000, "Size of cache.")
 	debug            = flag.Bool("debug", false, "Enable debug logging.")
 	version          = flag.Bool("version", false, "Show version number and quit.")
 )
@@ -35,15 +37,15 @@ type BadgeToken struct {
 const (
 	sonarBadgePath      = "/api/project_badges/measure"
 	sonarBadgeTokenPath = "/api/project_badges/token"
-	cacheSize           = 1000
-	cacheExpre          = time.Hour * 12
 )
+
+var cacheExpre = time.Second * time.Duration(*cacheExpire)
 
 var (
     targetUrl *url.URL
 )
 
-var tokensCache gcache.Cache = gcache.New(cacheSize).LRU().Build()
+var tokensCache gcache.Cache = gcache.New(*cacheSize).LRU().Build()
 
 
 func main() {
@@ -99,7 +101,7 @@ func proxyHandler(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusBadRequest)
 		writer.Header().Set("Content-Type", "application/json")
 		resp := make(map[string]string)
-		resp["message"] = fmt.Sprintf("Wrong params")
+		resp["message"] = "Wrong params"
 		jsonResp, _ := json.Marshal(resp)
 		writer.Write(jsonResp)
 		return
@@ -148,7 +150,7 @@ func getSonarBadgeToken(projectName string, sonarToken string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	var badgeTokenResponse BadgeToken
 	if err := json.Unmarshal(body, &badgeTokenResponse); err != nil {
 		log.Error("Can not unmarshal JSON. ", err)
