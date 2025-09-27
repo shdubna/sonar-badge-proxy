@@ -3,15 +3,17 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"flag"
 	"fmt"
-	log "github.com/sirupsen/logrus"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"time"
-	"io"
-	"github.com/bluele/gcache"
-	"flag"
+
+	"github.com/dgraph-io/ristretto/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 var gitTag string
@@ -20,10 +22,10 @@ var (
 	listenAddress    = flag.String("listen_address", ":8080", "Address to listen proxy requests.")
 	listenEndpoint   = flag.String("listen_endpoint", "/proxy/bages/measure", "Path under which proxy response to SonarQube.")
 	sonarUrl         = flag.String("sonar_url", "http://127.0.0.1:9000", "SonarQube url.")
+	sonarToken       = flag.String("sonar_token", "", "SonarQube token.")
 	insecure         = flag.Bool("insecure", false, "Allow insecure requests.")
 	proxyToken       = flag.String("proxy_token", "", "Proxy authrization token.")
 	cacheExpire      = flag.Int64("cache_expire", 3600, "Time to expire cached token, seconds.")
-	cacheSize        = flag.Int("cache_size", 1000, "Number of cached tokens.")
 	debug            = flag.Bool("debug", false, "Enable debug logging.")
 	version          = flag.Bool("version", false, "Show version number and quit.")
 )
@@ -45,11 +47,20 @@ var (
     targetUrl *url.URL
 )
 
-var tokensCache gcache.Cache = gcache.New(*cacheSize).LRU().Build()
+var cache, _ = ristretto.NewCache(&ristretto.Config[string, string]{
+	NumCounters: 1e7,     // number of keys to track frequency of (10M).
+	MaxCost:     1 << 30, // maximum cost of cache (1GB).
+	BufferItems: 64,      // number of keys per Get buffer.
+	})
 
 
 func main() {
 	flag.Parse()
+
+	if *version {
+		fmt.Println(gitTag)
+		os.Exit(0)
+	}
 
 	if *debug {
 		log.SetLevel(log.DebugLevel)
@@ -60,6 +71,7 @@ func main() {
     if err != nil {
 		log.Fatal("Unable to parse sonar_url: ", err)
     }
+
 
     handler := http.NewServeMux()
     handler.HandleFunc(*listenEndpoint, proxyHandler)
@@ -96,8 +108,8 @@ func proxyHandler(writer http.ResponseWriter, request *http.Request) {
 		log.Debug("Authorization sucess")
 	}
 
-	if query["project"] == nil || query["token"] == nil {
-		log.Warn("Wrong params")
+	if query["project"] == nil {
+		log.Warn("Wrong parameters")
 		writer.WriteHeader(http.StatusBadRequest)
 		writer.Header().Set("Content-Type", "application/json")
 		resp := make(map[string]string)
@@ -111,10 +123,9 @@ func proxyHandler(writer http.ResponseWriter, request *http.Request) {
 	request.Host = targetUrl.Host
 	request.URL.Path = sonarBadgePath
 	projectName := query["project"][0]
-	sonarToken := query["token"][0]
 
 	log.Debug("Get badge token for project for ", projectName)
-	sonarBadgeToken, err := getSonarBadgeToken(projectName, sonarToken)
+	sonarBadgeToken, err := getSonarBadgeToken(projectName, *sonarToken)
 
 	if err != nil {
 		writer.WriteHeader(http.StatusInternalServerError)
@@ -134,19 +145,30 @@ func proxyHandler(writer http.ResponseWriter, request *http.Request) {
 }
 
 func getSonarBadgeToken(projectName string, sonarToken string) (string, error) {
-    cachedToken, err := tokensCache.Get(projectName)
-	if err == nil {
+	cachedToken, found := cache.Get(projectName)
+	if found {
+		log.Debug("Found cache value ", cachedToken)
+		if cachedToken == "process" {
+			time.Sleep(100 * time.Millisecond)
+			log.Debug("Waiting for the issue token")
+			return getSonarBadgeToken(projectName, sonarToken)
+		}
 		log.Debug("Token found in cache")
-		return cachedToken.(string), nil
+		return cachedToken, nil
+	} else {
+		cache.SetWithTTL(projectName, "process", 1, 1 * time.Second)
+		cache.Wait()
 	}
-	log.Debug("Query project token")
+
+	log.Debug("Get project token from sonarqube")
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s?project=%s", *sonarUrl, sonarBadgeTokenPath, projectName), nil)
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s%s?project=%s", *sonarUrl, sonarBadgeTokenPath, projectName), nil)
 	req.SetBasicAuth(sonarToken,"")
 	resp, err := client.Do(req)
 
 	if err != nil {
 		log.Warn("Error while getting badge token: ", err)
+		cache.Del(projectName)
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -155,6 +177,7 @@ func getSonarBadgeToken(projectName string, sonarToken string) (string, error) {
 	if err := json.Unmarshal(body, &badgeTokenResponse); err != nil {
 		log.Error("Can not unmarshal JSON. ", err)
 	}
-	tokensCache.SetWithExpire(projectName, badgeTokenResponse.Token, cacheExpre)
+	cache.SetWithTTL(projectName, badgeTokenResponse.Token, 1, cacheExpre * time.Second)
+	cache.Wait()
 	return badgeTokenResponse.Token, nil
 }
