@@ -6,24 +6,25 @@
 [![GitHub tag](https://img.shields.io/github/v/tag/shdubna/sonar-badge-proxy?label=latest)](https://github.com/shdubna/sonar-badge-proxy/releases)
 
 This is simple reverse proxy that allow to get badges from sonarqube using user token. 
-For example you with this proxy you can configure badges on group level in Gitlab.
+For example you with this proxy you can configure badges on group level in Gitlab without pass sonarqube user token in badge url.
 
 ## Flags
-| Flag              | Description                                       | Type     | Default                |
-|:------------------|:--------------------------------------------------|:---------|:-----------------------| 
-| `listen_address`  | Address to listen requests                        | `string` | `:8080`                |
-| `listen_endpoint` | Path under which proxy response to SonarQube      | `string` | `/proxy/bages/measure` |
-| `insecure`        | Allow insecure requests                           | `bool`   | `false`                |
-| `proxy_token`     | Check authorization by proxy_token param in query | `string` | ``                     |
-| `cacheExpire`     | Time to expire cached token, seconds              | `int64`  | `3600`                 |
-| `cacheSize`       | Number of cached tokens                           | `int`    | `1000`                 |
-| `debug`           | Enable debug logging                              | `bool`   | `false `               |
+| Flag              | Description                                       | Type     | Default                 |
+|:------------------|:--------------------------------------------------|:---------|:------------------------| 
+| `listen_address`  | Address to listen requests                        | `string` | `:8080`                 |
+| `listen_endpoint` | Path under which proxy response to SonarQube      | `string` | `/proxy/bages/measure`  |
+| `insecure`        | Allow insecure requests                           | `bool`   | `false`                 |
+| `proxy_token`     | Check authorization by proxy_token param in query | `string` | ``                      |
+| `sonar_url`       | Url of SonarQube instance                         | `string` | `http://127.0.0.1:9000` |
+| `sonar_token`     | Token of sonarqube instance                       | `string` | ``                      |
+| `cacheExpire`     | Time to expire cached token, seconds              | `int64`  | `3600`                  |
+| `debug`           | Enable debug logging                              | `bool`   | `false `                |
 
 ## How to use
 1. Create sonar token
 2. Run and configure proxy
 3. Send request to proxy
   ```bash
-  curl <sonar-badge-proxy>/<listen_endpoint>?project=<project_name>&token=<sonar user token>&metric=alert_status
+  curl <sonar-badge-proxy>/<listen_endpoint>?project=<project_name>&metric=alert_status
   ```
 
