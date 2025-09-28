@@ -1,6 +1,6 @@
 module github.com/shdubna/sonar-badge-proxy
 
-go 1.23.5
+go 1.24.7
 
 require (
 	github.com/dgraph-io/ristretto/v2 v2.3.0
